@@ -1,0 +1,1 @@
+?powerSequence <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://saref.etsi.org/saref4ener/PowerSequence> . ?powerSequence <https://saref.etsi.org/saref4ener/deviceCode> ?deviceAddress . ?powerSequence <https://saref.etsi.org/saref4ener/sequenceID> ?sequenceID .

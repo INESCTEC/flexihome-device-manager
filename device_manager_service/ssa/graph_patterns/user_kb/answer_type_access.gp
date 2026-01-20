@@ -1,0 +1,1 @@
+?kb rdf:type ke:KnowledgeBase . ?kb ukb:wantsAccessToDevicesWithFunction ?deviceFunction . ?kb foaf:depiction ?kbImg . ?kb rdfs:label ?kbName . ?kb rdfs:comment ?kbDescription .

@@ -1,0 +1,236 @@
+version: "3.9"
+
+services:
+
+  # ------------------- THESE CONTAINERS ARE USED FOR TESTING PURPOSES ------------------- #
+
+  # postgresql:
+  #   image: postgres:latest
+  #   container_name: postgresql
+  #   restart: unless-stopped
+  #   # network_mode: host
+  #   ports:
+  #     - "5432:5432"
+  #   command: [ "postgres", "-c", "wal_level=logical" ]
+  #   environment:
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_DB=devicemanager
+  #     - POSTGRES_PASSWORD=123456
+  #   volumes:
+  #     - ./postgresql_start.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+
+  # test-db:
+  #   image: postgres:latest
+  #   container_name: test-db
+  #   restart: unless-stopped
+  #   # network_mode: host
+  #   ports:
+  #     - "5434:5432" # Changed the port to avoid conflict with device manager db
+  #   command: [ "postgres", "-c", "wal_level=logical" ]
+  #   environment:
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_DB=account_manager
+  #     - POSTGRES_PASSWORD=123456
+  #   volumes:
+  #     - ./postgresql_start_account.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+
+  # MULTIPLE DB INSTANCES IN ONE IMAGE
+  # https://github.com/mrts/docker-postgresql-multiple-databases
+  postgresql:
+    image: postgres:latest
+    container_name: postgresql
+    # network_mode: veth-hems
+    # network_mode: host
+    restart: unless-stopped
+    # network_mode: host
+    ports:
+      - "5432:5432"
+    # networks:
+    #   - device-manager
+    command: [ "postgres", "-c", "wal_level=logical" ]
+    environment:
+      # - POSTGRES_MULTIPLE_DATABASES="devicemanager","account_manager"
+      - POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+      - POSTGRES_DB=$POSTGRES_DB
+      - POSTGRES_USER=$POSTGRES_USER
+    volumes:
+      - ./postgresql_start_account.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+    # volumes:
+    #   - ./docker-postgresql-multiple-databases:/docker-entrypoint-initdb.d
+  
+  zookeeper:
+    image: debezium/zookeeper:1.6
+    container_name: zookeeper
+    # network_mode: veth-hems
+    ports:
+      - "2888:2888"
+      - "2181:2181"
+      - "3888:3888"
+    restart: unless-stopped
+
+  kafka:
+    image: debezium/kafka:1.6
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    # network_mode: veth-hems
+    ports:
+      - "9092:9092"
+    restart: unless-stopped
+    environment:
+      - ZOOKEEPER_CONNECT=$ZOOKEEPER_CONNECT
+  
+  connect:
+    image: debezium/connect:1.6
+    container_name: connect
+    depends_on:
+      - kafka
+    # network_mode: veth-hems
+    ports:
+      - "8083:8083"
+    restart: unless-stopped
+    environment:
+      - GROUP_ID=$GROUP_ID
+      - CONFIG_STORAGE_TOPIC=$CONFIG_STORAGE_TOPIC
+      - OFFSET_STORAGE_TOPIC=$OFFSET_STORAGE_TOPIC
+      - STATUS_STORAGE_TOPIC=$STATUS_STORAGE_TOPIC
+      - BOOTSTRAP_SERVERS=$BOOTSTRAP_SERVERS
+
+  account-manager:
+    # uses the latest production image
+    image: docker-registry.inesctec.pt/cpes/european-projects/interconnect/hems/hems-services/account-manager-service:latest
+    container_name: account-manager-test
+    # network_mode: veth-hems
+    # network_mode: host
+    restart: unless-stopped
+    # depends_on:
+    #   - postgresql
+    #   - connect
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_IP=$DATABASE_IP_ACCOUNT
+      - DATABASE_PORT=$DATABASE_PORT_ACCOUNT
+      - DATABASE_USER=$DATABASE_USER_ACCOUNT
+      - DATABASE_PASSWORD=$DATABASE_PASSWORD_ACCOUNT
+      - KAFKA_BROKER_ENDPOINT=$KAFKA_BROKER_ENDPOINT
+      - JWT_SIGN_KEY=$JWT_SIGN_KEY
+      - GITLAB_CI_TEST=$GITLAB_CI_TEST
+  
+  ga:
+    image: docker-registry.inesctec.pt/interconnect/generic-adapter:latest
+    container_name: ga
+    restart: unless-stopped
+    # network_mode: veth-hems
+    ports:
+      - "9090:9090"
+    environment:
+      - KE_HOST=https://ke.interconnectproject.eu/rest/
+  
+  elasticsearch:
+    container_name: temporal-elasticsearch
+    environment:
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=512mb
+      - cluster.routing.allocation.disk.watermark.high=256mb
+      - cluster.routing.allocation.disk.watermark.flood_stage=128mb
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms100m -Xmx100m
+    image: elasticsearch:7.10.1
+    # networks:
+    #   - temporal-network
+    # network_mode: veth-hems
+    ports:
+      - 9200:9200
+  
+  temporal:
+    container_name: temporal
+    depends_on:
+      - postgresql
+      - elasticsearch
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=$POSTGRES_USER
+      - POSTGRES_PWD=$POSTGRES_PASSWORD
+      - POSTGRES_SEEDS=$DATABASE_IP
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development_es.yaml
+      - ENABLE_ES=true
+      - ES_SEEDS=$ES_SEEDS
+      - ES_VERSION=v7
+    image: temporalio/auto-setup:1.13.1
+    # networks:
+    #   - temporal-network
+    # network_mode: veth-hems
+    ports:
+      - 7233:7233
+    volumes:
+      - ./Docker-compose/dynamicconfig:/etc/temporal/config/dynamicconfig
+  
+  temporal-admin-tools:
+    container_name: temporal-admin-tools
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    image: temporalio/admin-tools:1.13.1
+    # networks:
+    #   - temporal-network
+    # network_mode: veth-hems
+    stdin_open: true
+    tty: true
+  
+  temporal-web:
+    container_name: temporal-web
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_GRPC_ENDPOINT=temporal:7233
+      - TEMPORAL_PERMIT_WRITE_API=true
+    image: temporalio/web:1.13.0
+    # networks:
+    #   - temporal-network
+    # network_mode: veth-hems
+    ports:
+      - 8088:8088
+
+  influx-db-service:
+    image: influxdb:2.7
+    container_name: influxdb
+    volumes:
+     - influxdb:/var/lib/influxdb2
+    environment:
+     - DOCKER_INFLUXDB_INIT_MODE=setup
+     - DOCKER_INFLUXDB_INIT_USERNAME=cpes
+     - DOCKER_INFLUXDB_INIT_PASSWORD=mysecretpassword
+     - DOCKER_INFLUXDB_INIT_ORG=inesctec
+     - DOCKER_INFLUXDB_INIT_BUCKET=interconnect-eot-meters
+     - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=KnbXcUIzAE0-2cNfC-w1yz8MbsPZGpV6XTZbXdcJtIVHZEkFgiYoEgKv0NtMZbnl-DRbEaPX0bk5Fy-5UbBnOg==
+    # network_mode: veth-hems
+    ports:
+     - 8086:8086
+
+  # device-manager-service:
+  #   image: device-manager-service:latest
+  #   build:
+  #     context: ../
+  #   container_name: device-manager-service
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - postgresql
+  #     # - connect
+  #   # network_mode: host
+  #   ports:
+  #    - "8080:8080"
+  #   environment:
+  #     - DATABASE_IP=postgresql
+  #     - DATABASE_PORT=5432
+  #     - DATABASE_USER=postgres
+  #     - DATABASE_PASSWORD=123456
+      # - KAFKA_BROKER_ENDPOINT=kafka:9092
+
+# networks:
+#   device-manager:
+
+volumes:
+  influxdb:
