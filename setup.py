@@ -3,7 +3,7 @@
 import sys
 from setuptools import setup, find_packages
 
-NAME = "energy_manager_service"
+NAME = "device_manager_service"
 VERSION = "1.0.0"
 
 # To install the library, run the following
@@ -22,18 +22,18 @@ REQUIRES = [
 setup(
     name=NAME,
     version=VERSION,
-    description="Energy Manager Service",
-    author_email="igor.c.abreu@inesctec.pt",
+    description="Device Manager Service",
+    author_email="vasco.m.campos@inesctec.pt",
     url="",
-    keywords=["OpenAPI", "Energy Manager Service"],
+    keywords=["OpenAPI", "Device Manager Service"],
     install_requires=REQUIRES,
     packages=find_packages(),
     package_data={'': ['openapi/openapi.yaml']},
     include_package_data=True,
     entry_points={
-        'console_scripts': ['energy_manager_service=energy_manager_service.__main__:main']},
+        'console_scripts': ['device_manager_service=device_manager_service.__main__:main']},
     long_description="""\
-    Energy Manager Service OpenAPI definition.This service contains the requests to get energy schedule information. It computes and indicates an optimal operation schedule for the smart appliances.
+    Device Manager Service OpenAPI definition.  This service has the following functions: scan, add, delete, send commands, view measurements and state of the devices.  Find out more: [Device Manager Service documentation](https://gitlab.inesctec.pt/cpes/european-projects/interconnect/hems/hems-documentation/-/blob/master/Microservices/Device-Manager-Service.adoc)
     """
 )
 

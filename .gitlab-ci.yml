@@ -1,16 +1,244 @@
 # Order of the stages
 stages:
+  - test
   - build
   - push
   - deploy
 
+test:
+  # Use a base image with python already installed
+  image: docker-registry.inesctec.pt/cpes/european-projects/interconnect/hems/hems-infrastructure/gitlab-ci-base-image-debian:latest
+
+  # Job only starts if manually triggered from the GitLab UI
+  when: manual
+
+  stage: test
+  # This tag forces GitLab CD/CI to use the Docker Runner
+  # You might have to enable the Docker Runner on your repository (Settings -> CD/CI -> Runners -> Enable shared runners)
+  tags:
+    - docker
+  
+  services:
+  - docker:24.0.2-dind
+  # Environment variables
+  # In our case, only the POSTGRES_PASSWORD, POSTGRES_DB and DATABASE_IP were needed because the other are the default values in our configuration file (config.py)
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  
+    DOCKER_DRIVER: overlay2
+    DOCKER_BUILDKIT: 1
+    COMPOSE_DOCKER_CLI_BUILD: 1
+
+    # Postgresql
+    POSTGRES_USER: postgres
+    POSTGRES_DB: devicemanager # Needed for PostgreSQL image
+    POSTGRES_DB_ACCOUNT: account_manager
+    # POSTGRES_DB_DEVICE: devicemanager
+    # POSTGRES_MULTIPLE_DATABASES: '"devicemanager","account_manager"'
+    
+    # Zookeeper + Kafka + Connect
+    ZOOKEEPER_CONNECT: zookeeper:2181
+
+    GROUP_ID: "1"
+    CONFIG_STORAGE_TOPIC: my_connect_configs
+    OFFSET_STORAGE_TOPIC: my_connect_offsets
+    STATUS_STORAGE_TOPIC: my_connect_statuses
+    BOOTSTRAP_SERVERS: kafka:9092
+
+    CONNECT_IP: connect
+
+    # Account Manager Container
+    DATABASE_IP: postgresql
+    DATABASE_PORT: 5432
+    DATABASE_USER: postgres
+    KAFKA_BROKER_ENDPOINT: kafka:9092
+
+    ACCOUNT_MANAGER_ENDPOINT: http://account-manager-test:8080/api/account
+    DATABASE_IP_ACCOUNT: postgresql
+    DATABASE_PORT_ACCOUNT: 5432
+    DATABASE_USER_ACCOUNT: postgres
+    DATABASE_PASSWORD_ACCOUNT: mysecretpassword
+    GITLAB_CI_TEST: "True"
+    TESTING: "True"
+
+    WHIRLPOOL_GA_URL: http://ga:9090
+    WHIRLPOOL_SERVICE_USER_EMAIL: $SS_EMAIL_TEST
+    WHIRLPOOL_SERVICE_USER_PASSWORD: $SS_PASSWORD_TEST
+
+    USER_KB_GA_URL: http://ga:9090
+    USER_KB_SERVICE_USER_EMAIL: $SS_EMAIL_TEST
+    USER_KB_SERVICE_USER_PASSWORD: $SS_PASSWORD_TEST
+
+    BSH_GA_URL: http://ga:9090
+    BSH_SERVICE_USER_EMAIL: $SS_EMAIL_TEST
+    BSH_SERVICE_USER_PASSWORD: $SS_PASSWORD_TEST
+
+    TEMPORAL_URL: http://temporal:7233
+
+    # USER_EMAIL: $SS_EMAIL_TEST
+    # USER_PASSWORD: $SS_PASSWORD_TEST
+
+
+  before_script:
+    # PREPARE ENVIRONMENT
+    - docker version
+    - docker compose version
+    - docker info
+    - docker login -u $CI_REGISTRY_USER -p $CI_JOB_TOKEN $CI_REGISTRY
+
+    # Add dependencies
+    # - apk update
+    # - apk --no-cache add --update curl gettext postgresql-client
+    - apt-get update
+    - apt-get install -y curl gettext postgresql-client
+
+    # - docker container ls -aq
+    # - docker container stop $(docker container ls -aq) || true
+    # - docker container rm $(docker container ls -aq) || true
+    # - docker image rm $(docker image ls -aq) || true
+    # - docker volume rm $(docker volume ls -q) || true
+    # - docker system prune -af
+
+    - docker compose -f Docker-compose/docker-compose-prod.yml down -v
+    - docker compose -f Docker-compose/docker-compose-prod.yml rm -v
+
+  script:
+    - tox --version
+
+    # Start GA container
+    - docker compose -f Docker-compose/docker-compose-prod.yml up -d ga
+
+    # Start zookeeper container
+    - docker compose -f Docker-compose/docker-compose-prod.yml up -d zookeeper
+    - sleep 10
+
+    # - docker logs zookeeper
+    - export ZOOKEEPER_CONNECT=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' zookeeper):2181
+    - echo $ZOOKEEPER_CONNECT
+
+    # Start Postgres database and remaining kafka stack
+    - docker compose -f Docker-compose/docker-compose-prod.yml up -d postgresql connect kafka elasticsearch
+    - sleep 30
+    # - docker logs connect
+    # - docker logs postgresql
+
+
+    # Configure services IP's manually from the docker network
+    - export DATABASE_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' postgresql)
+    - export DATABASE_IP_ACCOUNT=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' postgresql)
+    - export BOOTSTRAP_SERVERS=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' kafka):9092
+    - export CONNECT_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' connect)
+
+    - echo $DATABASE_IP
+    - echo $DATABASE_IP_ACCOUNT
+    - echo $BOOTSTRAP_SERVERS
+    - echo $CONNECT_IP
+
+
+    # setup postgres account manager database for testing
+    - export PGPASSWORD=$POSTGRES_PASSWORD
+    - |
+      psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -p "5432" <<-EOSQL
+        CREATE DATABASE $POSTGRES_DB;
+        CREATE DATABASE $POSTGRES_DB_ACCOUNT;
+        CREATE DATABASE jwt_token_management;
+      EOSQL
+
+    # Debug databases status
+    - psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 'OK' AS status;"
+    - psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -d "$POSTGRES_DB_ACCOUNT" -c "SELECT 'OK' AS status;"
+    - psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -d "jwt_token_management" -c "SELECT 'OK' AS status;"
+
+
+    # Register the Debezium Postgres Connectors
+    - envsubst "`printf '${%s} ' $(sh -c "env|cut -d'=' -f1")`" < Docker-compose/debezium-prod.json > Docker-compose/debezium_env.json # Replace env variables values
+    - envsubst "`printf '${%s} ' $(sh -c "env|cut -d'=' -f1")`" < Docker-compose/debezium-prod-account.json > Docker-compose/debezium_env_account.json # Replace env variables values
+
+    # Connector data
+    - curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" http://$CONNECT_IP:8083/connectors/ --data-binary "@Docker-compose/debezium_env.json"
+    - curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" http://$CONNECT_IP:8083/connectors/ --data-binary "@Docker-compose/debezium_env_account.json"
+    - sleep 5
+    # - docker logs --tail 50 connect
+    - curl -i -H "Accept:application/json" http://$CONNECT_IP:8083/connectors/postgres-connector-device-manager/status
+    - curl -i -H "Accept:application/json" http://$CONNECT_IP:8083/connectors/postgres-connector-account-manager/status
+
+    # Account Manager Service up
+    - docker compose -f Docker-compose/docker-compose-prod.yml up -d account-manager
+    - sleep 15
+    # - docker logs account-manager-test
+    
+    # Configure service IP manually
+    - export ACCOUNT_MANAGER_ENDPOINT=http://$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' account-manager-test):8080/api/account
+    - echo $ACCOUNT_MANAGER_ENDPOINT
+
+    # Test connection to account-manager service
+    - |
+      curl -H "X-Correlation-ID: 5c70300e-9f45-4447-bd09-72f4ba3c8209" $ACCOUNT_MANAGER_ENDPOINT/user?user-ids=1234567892
+
+    # Temporal and Influx Service up
+    - export ES_SEEDS=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' temporal-elasticsearch)
+    - echo $ES_SEEDS
+    
+    - docker compose -f Docker-compose/docker-compose-prod.yml up -d temporal temporal-admin-tools temporal-web influx-db-service
+    # - docker container ls
+    # - docker logs account-manager-test
+    - sleep 60
+    # - docker container ls
+
+    - export TEMPORAL_URL=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' temporal):7233
+    - echo $TEMPORAL_URL
+    # - docker logs temporal
+    - export INFLUX_URL=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' influxdb)
+    - echo $INFLUX_URL
+
+    - export WHIRLPOOL_GA_URL=http://$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ga):9090
+    - export USER_KB_GA_URL=http://$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ga):9090
+    - export BSH_GA_URL=http://$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ga):9090
+    - echo $WHIRLPOOL_GA_URL
+    - echo $USER_KB_GA_URL
+    - echo $BSH_GA_URL
+
+    - docker container ls -a
+
+    - tox -c tox-gitlab.ini
+
+  
+  after_script:
+    - export DATABASE_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' postgresql)
+    - export PGPASSWORD=$POSTGRES_PASSWORD
+    - |
+      psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -p "5432" -d "$POSTGRES_DB_ACCOUNT" <<-EOSQL
+        SELECT * FROM users;
+      EOSQL
+    
+    - |
+      psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -p "5432" -d "$POSTGRES_DB_ACCOUNT" <<-EOSQL
+        SELECT * FROM confirmation_tokens;
+      EOSQL
+
+    - |
+      psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -p "5432" -d "$POSTGRES_DB_ACCOUNT" <<-EOSQL
+        SELECT * FROM events;
+      EOSQL
+    
+    - |
+      psql -h "$DATABASE_IP" --username "$POSTGRES_USER" -p "5432" -d "$POSTGRES_DB_ACCOUNT" <<-EOSQL
+        SELECT * FROM processed_events;
+      EOSQL
+
+    # - docker logs connect
+    # - docker logs account-manager-test
+
+    - docker compose -f Docker-compose/docker-compose-prod.yml down -v
+    - docker compose -f Docker-compose/docker-compose-prod.yml rm -v
+
 build:
-  image: docker:20.10.17
+  image: docker:24.0.2
   stage: build
   tags:
     - docker
   services:
-    - docker:20.10.17-dind
+    - docker:24.0.2-dind
   before_script:
     - docker info # Print out docker version for debugging
     - echo -n $CI_JOB_TOKEN | docker login -u gitlab-ci-token --password-stdin $CI_REGISTRY # Login on the GitLab container registry
@@ -25,51 +253,24 @@ build:
 
     # Build docker image
     # - docker build --network host -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
-    - docker build --network host --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
+    - docker build --network host
+        --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME
+        --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN
+        --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN
+        --build-arg GITLAB_SSA_DEPLOY_USERNAME=$GITLAB_SSA_DEPLOY_USERNAME
+        -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
 
     # Push the image to the registry (GitLab container registry)
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
 
-build-jobs:
-  image: docker:20.10.17
-  stage: build
-  tags:
-    - docker
-  services:
-    - docker:20.10.17-dind
-  before_script:
-    - docker info # Print out docker version for debugging
-    - echo -n $CI_JOB_TOKEN | docker login -u gitlab-ci-token --password-stdin $CI_REGISTRY # Login on the GitLab container registry
-
-  script:
-    # Build docker image
-    - docker build --network host --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN -t $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA -f jobs/calculate_available_flexibility/Dockerfile .
-    - docker build --network host --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN -t $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA -f jobs/post_flexibility/Dockerfile .
-
-    - docker build --network host --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN -t $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA -f energy_manager_service/jobs/send_pilot_active_power/Dockerfile .
-    - docker build --network host --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN -t $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA -f energy_manager_service/jobs/send_pilot_baseline/Dockerfile .
-    - docker build --network host --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN -t $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA -f jobs/send_setpoints/Dockerfile .
-
-    - docker build --network host --build-arg GITLAB_DEPLOY_TOKEN=$GITLAB_DEPLOY_TOKEN --build-arg GITLAB_DEPLOY_USERNAME=$GITLAB_DEPLOY_USERNAME --build-arg GITLAB_SSA_MANAGER_DEPLOY_TOKEN=$GITLAB_SSA_MANAGER_DEPLOY_TOKEN -t $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA -f energy_manager_service/jobs/notify_users_flexibility_not_accepted_by_grid/Dockerfile .
-
-    # Push the image to the registry (GitLab container registry)
-    - docker push $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA
-    - docker push $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA
-
-    - docker push $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA
-    - docker push $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA
-    - docker push $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA
-
-    - docker push $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA
-
 # Here, the goal is to tag the "master" branch as "latest"
 push-latest:
-  image: docker:20.10.17
+  image: docker:24.0.2
   stage: push
   tags:
     - docker
   services:
-    - docker:20.10.17-dind
+    - docker:24.0.2-dind
   before_script:
     - docker info # Print out docker version for debugging
     - echo -n $CI_JOB_TOKEN | docker login -u gitlab-ci-token --password-stdin $CI_REGISTRY
@@ -81,39 +282,21 @@ push-latest:
     # Because we have no guarantee that this job will be picked up by the same runner
     # that built the image in the previous step, we pull it again locally
     - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA
 
     # Then we tag it "latest"
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest
-    - docker tag $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/calculate-available-flexibility:latest
-    - docker tag $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/post-flexibility:latest
-    - docker tag $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/active-power:latest
-    - docker tag $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/baseline:latest
-    - docker tag $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/send-setpoints-test:latest
-    - docker tag $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:latest
 
     # Annnd we push it.
     - docker push $CI_REGISTRY_IMAGE:latest
-    - docker push $CI_REGISTRY_IMAGE/calculate-available-flexibility:latest
-    - docker push $CI_REGISTRY_IMAGE/post-flexibility:latest
-    - docker push $CI_REGISTRY_IMAGE/active-power:latest
-    - docker push $CI_REGISTRY_IMAGE/baseline:latest
-    - docker push $CI_REGISTRY_IMAGE/send-setpoints-test:latest
-    - docker push $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:latest
 
 # Push to staging or other branches
 push-secondary-branches:
-  image: docker:20.10.17
+  image: docker:24.0.2
   stage: push
   tags:
     - docker
   services:
-    - docker:20.10.17-dind
+    - docker:24.0.2-dind
   before_script:
     - docker info # Print out docker version for debugging
     - echo -n $CI_JOB_TOKEN | docker login -u gitlab-ci-token --password-stdin $CI_REGISTRY
@@ -126,39 +309,21 @@ push-secondary-branches:
     # Because we have no guarantee that this job will be picked up by the same runner
     # that built the image in the previous step, we pull it again locally
     - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA
 
     # Then we tag it "staging"
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:$CI_COMMIT_BRANCH
-    - docker tag $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_BRANCH
-    - docker tag $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_BRANCH
-    - docker tag $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_BRANCH
-    - docker tag $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_BRANCH
-    - docker tag $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_BRANCH
-    - docker tag $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_BRANCH
 
     # Annnd we push it.
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_BRANCH
-    - docker push $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_BRANCH
-    - docker push $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_BRANCH
-    - docker push $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_BRANCH
-    - docker push $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_BRANCH
-    - docker push $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_BRANCH
-    - docker push $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_BRANCH
 
 # Push New tagged version to container registry (when manually tagged)
 push-tag:
-  image: docker:20.10.17
+  image: docker:24.0.2
   stage: push
   tags:
     - docker
   services:
-    - docker:20.10.17-dind
+    - docker:24.0.2-dind
   rules:
     - if: $CI_COMMIT_TAG
   before_script:
@@ -168,30 +333,12 @@ push-tag:
   script:
     # Pull commit tag
     - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA
-    - docker pull $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA
 
     # Then we tag it with tag label
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
-    - docker tag $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_TAG
-    - docker tag $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_TAG
-    - docker tag $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_TAG
-    - docker tag $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_TAG
-    - docker tag $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_TAG
-    - docker tag $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_TAG
 
     # And we push it back to the registry.
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
-    - docker push $CI_REGISTRY_IMAGE/calculate-available-flexibility:$CI_COMMIT_TAG
-    - docker push $CI_REGISTRY_IMAGE/post-flexibility:$CI_COMMIT_TAG
-    - docker push $CI_REGISTRY_IMAGE/active-power:$CI_COMMIT_TAG
-    - docker push $CI_REGISTRY_IMAGE/baseline:$CI_COMMIT_TAG
-    - docker push $CI_REGISTRY_IMAGE/send-setpoints-test:$CI_COMMIT_TAG
-    - docker push $CI_REGISTRY_IMAGE/notify-users-flexibility-not-accepted-by-grid:$CI_COMMIT_TAG
 
 mirror-to-github:
   stage: deploy

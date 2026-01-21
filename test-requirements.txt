@@ -1,7 +1,8 @@
-pytest==6.2.5 # needed for python 2.7+3.4
-pytest-cov>=2.8.1
-pytest-randomly==1.2.3 # needed for python 2.7+3.4
-Flask-Testing==0.8.0
+pytest==7.1.*
+pytest-cov==2.11.*
+pytest-randomly==3.7.*
+Flask-Testing==0.8.*
+# openapi-spec-validator==0.4.*
+# jsonschema==3.2.*
 prance==0.21.*
-cassandra-driver==3.28.0
-# pytest-flask==1.2.0
+importlib-metadata==4.11.*

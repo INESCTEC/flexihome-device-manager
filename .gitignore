@@ -66,23 +66,13 @@ target/
 #Ipython Notebook
 .ipynb_checkpoints
 
-soplex-6.0.2.0
-scip-8.0.2
-scip-8.0.3
-scipoptsuite-8.0.3
-cmake-3.11.0
-boost_1_82_0
-
-
+# OpenAPI stuff
+.openapi-generator/
 .travis.yml
-openapi-generator-cli.jar
-venv_hems/
-gpg
-scip-8.0.3.tgz
-soplex-6.0.3.0.tgz
-scipoptsuite-8.0.3.tgz
-energy_manager_service/controllers/__init__.py
-Docker-compose/out/
-interconnect_hems/
+git_push.sh
+
+docker-compose-spine-test.yml
+requirements-test.txt
+
 .env*
-.secrets*
+.secrets.*

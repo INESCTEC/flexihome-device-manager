@@ -1,4 +1,7 @@
-aiokafka==0.8.1
-marshmallow==3.18.0
-markupsafe==2.0.1
-git+https://${GITLAB_DEPLOY_USERNAME}:${GITLAB_DEPLOY_TOKEN}@gitlab.inesctec.pt/cpes/european-projects/interconnect/hems/custom-hems-libraries/hems-auth.git@v2.0.4
+# setuptools==56.2.0
+# protobuf==3.20.3
+# protoc-wheel-0==23.3
+# temporalio==1.2.*
+
+# SSA management library
+git+https://${GITLAB_DEPLOY_USERNAME}:${GITLAB_SSA_MANAGER_DEPLOY_TOKEN}@gitlab.inesctec.pt/cpes/european-projects/interconnect/hems/custom-hems-libraries/ssa-manager.git@v3.3.0
