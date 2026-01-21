@@ -1,0 +1,144 @@
+version: "3.9"
+
+services:
+  postgresql:
+    image: postgres:latest
+    container_name: postgresql
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      - POSTGRES_MULTIPLE_DATABASES="account_manager","devicemanager","jwt_token_management","energy_manager","notification_manager"
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=mysecretpassword
+    volumes:
+      - ./docker-postgresql-multiple-databases:/docker-entrypoint-initdb.d
+
+  zookeeper:
+    image: debezium/zookeeper:1.6
+    container_name: zookeeper
+    ports:
+      - "2888:2888"
+      - "2181:2181"
+      - "3888:3888"
+    restart: unless-stopped
+
+  kafka:
+    image: debezium/kafka:1.6
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    restart: unless-stopped
+    environment:
+      - ZOOKEEPER_CONNECT=zookeeper:2181
+
+  connect:
+    image: debezium/connect:1.6
+    container_name: connect
+    depends_on:
+      - kafka
+    ports:
+      - "8083:8083"
+    restart: unless-stopped
+    environment:
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+      - BOOTSTRAP_SERVERS=kafka:9092
+
+  account-manager:
+    # uses the latest production image
+    image: docker-registry.inesctec.pt/cpes/european-projects/interconnect/hems/hems-services/account-manager-service:staging
+    container_name: account-manager
+    restart: unless-stopped
+    depends_on:
+      - postgresql
+      - connect
+    ports:
+      - "8081:8080"
+    environment:
+      - DATABASE_IP=postgresql
+      - DATABASE_PORT=5432
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=mysecretpassword
+      - KAFKA_BROKER_ENDPOINT=kafka:9092
+      - GITLAB_CI_TEST=True
+      - JWT_SIGN_KEY=f797b720a53f8e9c71d33700f2a703acea28985dd427369a3f55f48ba171998e408b44c072c1d9dfb06192aa6808c8a9e28b68dbe842d0c1473405fc298f31708ad12168bcdeb642ba619866ae1c0a49fa4fa248818535105ec7931901589de6b4f316273994003db830f23331b12c9da51415d479ead7729bb30c7df54aaf78
+
+  # device-manager:
+  #   image: docker-registry.inesctec.pt/cpes/european-projects/interconnect/hems/hems-services/device-manager-service:staging
+  #   container_name: device-manager
+  #   ports:
+  #     - "8082:8080"
+  #   restart: unless-stopped
+  #   environment:
+  #     - DATABASE_IP=postgresql
+  #     - DATABASE_PORT=5432
+  #     - DATABASE_USER=postgres
+  #     - DATABASE_PASSWORD=mysecretpassword
+
+  #     - AUTH_DATABASE_USER=postgres
+  #     - AUTH_DATABASE_PASSWORD=mysecretpassword
+
+  #     - DATABASE_IP_ACCOUNT=postgresql
+  #     - DATABASE_PORT_ACCOUNT=5432
+  #     - DATABASE_USER_ACCOUNT=postgres
+  #     - DATABASE_PASSWORD_ACCOUNT=mysecretpassword
+
+  #     - KAFKA_BROKER_ENDPOINT=kafka:9092
+  #     - KAFKA_TOPIC=hems.device-manager
+
+  #     - WP_THREAD=False
+  #     - BSH_THREAD=False
+  #     - BSH_GA_URL=http://ga:9090
+  #     - WHIRLPOOL_GA_GLOBAL_URL=http://ga-global:9090
+  #     - WHIRLPOOL_GA_PT_URL=http://ga:9090
+
+  #     - TESTING=True
+
+  notification-manager:
+    # uses the latest production image
+    image: docker-registry.inesctec.pt/cpes/european-projects/interconnect/hems/hems-services/notification-manager-service:staging
+    container_name: notification-manager
+    restart: unless-stopped
+    depends_on:
+      - postgresql
+      - connect
+    ports:
+      - "8084:8080"
+    environment:
+      - DATABASE_IP=postgresql
+      - DATABASE_PORT=5432
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=mysecretpassword
+
+      - AUTH_DATABASE_USER=postgres
+      - AUTH_DATABASE_PASSWORD=mysecretpassword
+
+      - KAFKA_BROKER_ENDPOINT=kafka:9092
+
+      - USER_ACCOUNT_ENDPOINT=http://account-manager:8080/api/account
+
+  ga:
+    image: docker-registry.inesctec.pt/interconnect/generic-adapter:2.2.4
+    container_name: ga
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+      - "9001:9001"
+    environment:
+      - KE_HOST=https://ke-pt.interconnectproject.eu/rest/
+      - service-store.check-recipientSelector=false # Needed for spine adapter with recipient selector active
+
+  ga-global:
+    image: docker-registry.inesctec.pt/interconnect/generic-adapter:2.2.4
+    container_name: ga-global
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    environment:
+      - KE_HOST=https://ke.interconnectproject.eu/rest/

@@ -1,1 +1,0 @@
-?kb rdf:type ke:KnowledgeBase . ?kb ukb:hasAccessToDevice ?device . 

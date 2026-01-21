@@ -1,0 +1,1078 @@
+openapi: 3.0.0
+info:
+  description: "Energy Manager Service OpenAPI definition.This service contains the requests to get energy schedule information. It computes and indicates an optimal operation schedule for the smart appliances."
+  version: 1.8.0
+  title: Energy Manager Service
+  contact:
+    name: Igor Rezende
+    email: igor.c.abreu@inesctec.pt
+servers:
+  - url: http://interconnect.inesctec.pt/api/energy_manager_service
+
+paths:
+
+  /flexibility/available:
+    description: Build the dayahead energy flexibility considering only appliances in the HEMS pool, it was selected by user in 20h to 22h.
+    get:
+      summary: Fetch latest flexibility available for <user_id>.
+      tags: 
+        - Flexibility - Service
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Authorization"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        200:
+          description: Baseline, Flexibility UPWARD and Flexibility DOWNWARD vectors for <user_id>.
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableFlexibilityResponse"
+              examples:
+                available flexibility with up/down opportunities:
+                  $ref: "#/components/examples/AvailableFlexExample"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        401:
+          $ref: "#/components/responses/InvalidCredentials"
+        403:
+          $ref: "#/components/responses/Forbidden"
+        404:
+          $ref: "#/components/responses/UserIdNotFound"
+        408:
+          $ref: "#/components/responses/RequestDelayTimeout"
+    
+    post:
+      summary: Build dayahead energy flexibility considering only appliances in the HEMS pool.
+      tags: 
+        - Flexibility - Service
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Authorization"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        200:
+          description: List of flexibility optimization results with Baseline, Flexibility UPWARD, Flexibility DOWARD.
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableFlexibilityResponse"
+              examples:
+                available flexibility with up/down opportunities:
+                  $ref: "#/components/examples/AvailableFlexExample"
+        202:
+          $ref: "#/components/responses/NoFlexibilityAvailable"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        401:
+          $ref: "#/components/responses/InvalidCredentials"
+        403:
+          $ref: "#/components/responses/Forbidden"
+        404:
+          $ref: "#/components/responses/UserIdNotFound"
+        408:
+          $ref: "#/components/responses/RequestDelayTimeout"
+        422:
+         $ref: "#/components/responses/UnprocessableSchedulling"
+        424:
+          $ref: "#/components/responses/FailedDependencyServices"
+
+
+  /flexibility/accept:
+    description: Third party accept request for an HEMS (user_id) flexibility offered.
+    post:
+      summary: Third party accept request for an HEMS (user_id) flexibility offered.
+      tags: 
+        - Flexibility - Service
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Authorization"
+        - $ref: "#/components/parameters/AssetId"
+      requestBody:
+        description: |
+          Array of setpoints with the accepted flexibility for an HEMS (asset).
+
+          **Must be an array of 96 positions (intervals of 15 minutes).**
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlexAcceptBody"
+      responses:
+        200:
+          description: Flexibility accepted by HEMS acknowledged.
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlexAcceptedAcknowledged"
+        202:
+          $ref: "#/components/responses/FlexibilityAlreadyAccepted"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        401:
+          $ref: "#/components/responses/InvalidCredentials"
+        403:
+          $ref: "#/components/responses/Forbidden"
+        404:
+          $ref: "#/components/responses/UserIdNotFound"
+        408:
+          $ref: "#/components/responses/RequestDelayTimeout"
+
+
+  /flexibility/recommendations:
+    description: "Gather optimized cycle recommendations by user from today onward"
+    get:
+      summary: "Gather optimized cycle recommendations by user from today onward"
+      tags:
+        - Flexibility - Recommendations
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Authorization"
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/Accepted"
+      responses:
+        200:
+          description: "Successfully gathered optimized cycle recommendations by user from today onward"
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecommendationObject"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        401:
+          $ref: "#/components/responses/InvalidCredentials"
+        403:
+          $ref: "#/components/responses/Forbidden"
+        404:
+          $ref: "#/components/responses/UserIdNotFound"
+        408:
+          $ref: "#/components/responses/RequestDelayTimeout"
+    
+    delete:
+      summary: "Delete recommendation by id or by sequence id"
+      description: "MUST CONTAIN EITHER THE <recommendation_id> OR BOTH THE <sequence_id> AND <serial_number>"
+      tags:
+        - Flexibility - Recommendations
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Authorization"
+        - $ref: "#/components/parameters/RecommendationIdNotRequired"
+        - $ref: "#/components/parameters/SequenceIdNotRequired"
+        - $ref: "#/components/parameters/SerialNumberNotRequired"
+      responses:
+        200:
+          description: "Successfully deleted recommendation"
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Recommendation with id <recommendation_id> was deleted"
+  
+  /flexibility/recommendations/accept:
+    description: "Acceptance request to indicate that the optimized cycle was accepted by the user"
+    post:
+      summary: "User accepts the recommendation for the cycle <sequence_id>"
+      tags:
+        - Flexibility - Recommendations
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Authorization"
+        - $ref: "#/components/parameters/RecommendationId"
+      requestBody:
+        description: |
+          Metadata related to the delayed start associated to this recommendation.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DelayStatusBody"
+      responses:
+        200:
+          description: "Successfully accepted the recommendation for the cycle <sequence_id>"
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Recommendation for cycle <sequence_id> was accepted by the user"
+        202:
+          $ref: "#/components/responses/FlexibilityAlreadyAccepted"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        401:
+          $ref: "#/components/responses/InvalidCredentials"
+        403:
+          $ref: "#/components/responses/Forbidden"
+        404:
+          $ref: "#/components/responses/UserIdNotFound"
+        408:
+          $ref: "#/components/responses/RequestDelayTimeout"
+ 
+
+          
+security:
+  - {}
+  - Bearer: []
+  
+components:
+  securitySchemes:
+    Bearer: # arbitrary name for the security scheme
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+      
+  # ----------------------------- HEADERS ----------------------------- #
+  
+  headers:
+    CorrelationId:
+      required: true
+      schema:
+        $ref: "#/components/schemas/CorrelationId"
+
+    Authorization:
+      required: true
+      schema:
+        $ref: "#/components/schemas/Authorization"
+
+
+  # ----------------------------- PARAMETERS ----------------------------- #
+
+  parameters:
+    CorrelationId:
+      in: header
+      name: X-Correlation-ID
+      required: true
+      schema:
+        $ref: "#/components/schemas/CorrelationId"
+
+    Authorization:
+      in: header
+      name: Authorization
+      schema:
+        $ref: "#/components/schemas/Authorization"
+        
+    UserId:
+      in: query
+      name: user_id
+      required: true
+      schema:
+        $ref: "#/components/schemas/UserId"
+    
+    AssetId:
+      in: query
+      name: asset
+      required: true
+      schema:
+        $ref: "#/components/schemas/UserId"
+    
+    SerialNumber:
+      in: query
+      name: serial_number
+      required: true
+      schema:
+        $ref: "#/components/schemas/SerialNumber"
+    
+    SerialNumberNotRequired:
+      in: query
+      name: serial_number
+      required: false
+      schema:
+        $ref: "#/components/schemas/SerialNumber"
+      
+    SequenceId:
+      in: query
+      name: sequence_id
+      required: true
+      schema:
+        $ref: "#/components/schemas/SequenceId"
+    
+    SequenceIdNotRequired:
+      in: query
+      name: sequence_id
+      required: false
+      schema:
+        $ref: "#/components/schemas/SequenceId"
+    
+    RecommendationId:
+      in: query
+      name: recommendation_id
+      required: true
+      schema:
+        type: integer
+        example: 1
+    
+    RecommendationIdNotRequired:
+      in: query
+      name: recommendation_id
+      required: false
+      schema:
+        type: integer
+        example: 1
+    
+    Accepted:
+      description: "If true, only recommendations accepted by the user will be returned. If false, only recommendations not accepted by the user will be returned. If not present, all recommendations will be returned."
+      in: query
+      name: accepted
+      required: false
+      schema:
+        type: boolean
+        example: true
+        
+
+  # ----------------------------- SCHEMAS ----------------------------- #
+
+  schemas:
+    CorrelationId:
+      type: string
+      format: uuid
+
+    UserId:
+      type: string
+      example: 4c5e80dfjc
+      minLength: 10
+      maxLength: 10
+
+    Authorization:
+      type: string
+      format: byte # base64
+
+    Timestamp:
+      type: string
+      format: date-time
+      example: "2022-06-30T23:59:59Z"
+    
+    OptimizedCycle:
+        type: object
+        properties:
+          serial_number:
+            $ref: "#/components/schemas/SerialNumber"
+          sequence_id:
+            $ref: "#/components/schemas/SequenceId"
+          scheduled_start_time:
+            $ref: "#/components/schemas/Timestamp"
+          scheduled_end_time:
+            $ref: "#/components/schemas/Timestamp"
+          program:
+            type: string
+            example: "Cottons 60"
+          optimized_start_time:
+            $ref: "#/components/schemas/Timestamp"
+          acceptance_request:
+            type: boolean
+            example: true
+    
+
+    PowerUnits:
+      type: string
+      enum: ["W", "kW"]
+
+    Scheduling:
+      type: object
+      properties:
+        start_time:
+          $ref: "#/components/schemas/Timestamp"
+        power_value:
+          type: number
+          example: 250
+          minimum: 0
+        power_units:
+          $ref: "#/components/schemas/PowerUnits"
+      required:
+        - start_time
+        - power_value
+        - power_units
+
+
+    ############################# FLEXIBILITY RESPONSE ############################
+
+
+    AvailableFlexibilityResponse:
+      type: object
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        baseline:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scheduling"
+        flexibility_downward:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scheduling"
+        flexibility_upward:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scheduling"
+      required:
+        - user_id
+        - baseline
+     
+
+
+    ############################# SHIFTABLE MACHINE ############################
+    
+    SerialNumber:
+        type: string
+        example: "Hotpoint_FabricCare_WPR4LLLG8NWD4" # Hotpoint -> Brand | FabricCare -> Type | WPR4LLLG8NWD4 -> DeviceAddress
+    
+    SequenceId:
+      type: string
+      example: "40A45E3C-AEDF-456A-A7F8-5A9FF3F8CD97"
+
+    
+    ############################# SCHEDULE RESPONSE ############################
+
+    ScheduleResponse:
+      type: object
+      properties:
+        serial_number:
+          $ref: "#/components/schemas/SerialNumber"
+        sequence_id:
+          $ref: "#/components/schemas/SequenceId"
+        schedule:
+          type: array
+          items:
+            type: integer
+            example: [1, 2, 3, 5]
+
+    
+    FlexAcceptedAcknowledged:
+      type: object
+      properties:
+        accepted:
+          type: string
+          example: "Accepted flexibility triggered by asset xxxx"
+
+    ResponseInfoMessage:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Failed to get inputs for flexibility optimization."
+
+    
+
+    ############################### RECOMMENDATIONS #############################
+
+    RecommendationObject:
+      type: object
+      properties:
+        recommendation_id:
+          type: integer
+          example: 1
+        serial_number:
+          $ref: "#/components/schemas/SerialNumber"
+        sequence_id:
+          $ref: "#/components/schemas/SequenceId"
+        accepted:
+          type: boolean
+          example: true
+        optimized_start_time:
+          $ref: "#/components/schemas/Timestamp"
+        optimized_end_time:
+          $ref: "#/components/schemas/Timestamp"
+      required:
+        - serial_number
+        - sequence_id
+        - accepted
+        - optimized_start_time
+        - optimized_end_time
+
+
+    ############################### REQUEST BODIES ##############################
+
+    FlexAcceptBody:
+      type: object
+      properties:
+        data_point:
+          type: string
+          example: "dp"
+        creation_timestamp:
+          $ref: "#/components/schemas/Timestamp"
+        setpoints:
+          type: array
+          minItems: 24
+          maxItems: 96
+          items:
+            type: object
+            properties:
+              time_interval_start:
+                $ref: "#/components/schemas/Timestamp"
+              time_interval_end:
+                $ref: "#/components/schemas/Timestamp"
+              power_value:
+                type: number
+                example: 250
+                minimum: 0
+            required:
+              - time_interval_start
+              - time_interval_end
+              - power_value
+          required:
+            - data_point
+            - creation_timestamp
+            - setpoints
+    
+    DelayStatusBody:
+      type: object
+      properties:
+        delay_call_ok:
+          type: boolean
+          example: false
+        delay_call_description:
+          type: string
+          example: "Delay call failed with SSA status code: 400"
+      required:
+        - delay_call_ok
+      #   - delay_call_description
+
+
+    ################################## ERRORS ##################################
+
+    Error:
+      description: Error model
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+
+  # ----------------------------- RESPONSES ----------------------------- #
+
+  responses:
+
+    FlexibilityAlreadyAccepted:
+      description: Flexibility offer already accepted
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/FlexAcceptedAcknowledged"
+          examples:
+            Flexibility already accepted:
+              value:
+                accepted: "Flexibility offer of <asset> already accepted"
+
+    NoFlexibilityAvailable:
+      description: No flexibility available
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ResponseInfoMessage"
+          examples:
+            Unfeasible Optimizer Result:
+              value:
+                message: "Baseline/Flex problem could not be solved."
+            User has no scheduled cycles in pool:
+              value:
+                message: "Failed to get inputs for flexibility optimization."
+
+    BadRequest:
+      description: Bad Request
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            Timestamp error:
+              value:
+                error: "one or more timestamps in the request are invalid"
+            Missing X-Correlation-ID header:
+              value:
+                error: "missing X-Correlation-ID header"
+
+    InvalidCredentials:
+      description: Unauthenticated or invalid credentials
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            Unauthenticated:
+              value:
+                error: "error in authorization token"
+
+    Forbidden:
+      description: Forbidden to access the information requested
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            Forbidden:
+              value:
+                error: "you are not authorized to access this information"
+
+    UserIdNotFound:
+      description: HEMS not found
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            User Id not found:
+              value:
+                error: 'user with id "userId" not found'
+            Asset not found:
+              value:
+                error: 'asset with id "assetId" not found'
+    
+    RequestDelayTimeout:
+      description: Request timed out
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            ResquestService Error:
+              value:
+                error: 'Request timed out.'
+    
+    UnprocessableSchedulling:
+      description: The schedule result is unfeaseasible
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            Unfeasible Result:
+              value:
+                error: "The schedule was calculated and an unfeasible result was obtained."
+                
+    FailedDependencyServices:
+      description: Request service returned an error or null response
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            ResquestService Null:
+              value:
+                error: 'The DeviceManager service returned null devices list.' 
+                
+
+
+  # ----------------------------- EXAMPLES ----------------------------- #
+  examples:
+    ScheduleExample:
+      value:
+        - user_id: "4c5e80dfjc"
+          pool:
+            - serial_number: "Miele_Dishwasher_1029999753"
+              cycles:
+                - sequence_id: 40A45E3C-AEDF-456A-A7F8-5A9FF3F8CD97
+                  scheduled_start_time: 2022-01-04T10:00:00Z
+                  is_optimized: true
+                
+
+            - serial_number: "Bosch_Dryer_1290999325"
+              cycles:
+                - sequence_id: 40A45E3C-AEDF-456A-A7F8-92D0221S
+                  scheduled_start_time: 2022-01-04T16:00:00Z
+                  is_optimized: true
+    CyclesExample:
+      value:
+        - user_id: "4c5e80dfjc"
+          cycles:
+            - serial_number: "Miele_Dishwasher_1029999753"
+              sequence_id: 40A45E3C-AEDF-456A-A7F8-5A9FF3F8CD97
+              day_ahead: 2023-07-10T00:00:00Z
+              shown_in_app: true
+              acceptance_request: true
+              scheduled_start_time: 2023-07-10T10:00:00Z
+              datetime_requested: 2023-07-06T23:00:00Z
+            
+            - serial_number: "Bosch_Dryer_1290999325"
+              sequence_id: 40A45E3C-AEDF-456A-A7F8-92D0221S
+              day_ahead: 2023-07-10T00:00:00Z
+              shown_in_app: true
+              acceptance_request: true
+              scheduled_start_time: 2023-07-10T10:00:00Z
+              datetime_requested: 2023-07-06T23:00:00Z
+    UpdateExample:
+      value: True
+    AvailableFlexExample:
+      value:
+        user_id: "4c5e80dfjc"
+        baseline: 
+          - start_time: '2023-02-07T00:00:00Z'
+            power_value: 0.359352
+            power_unit: kW
+          - start_time: '2023-02-07T00:15:00Z'
+            power_value: 0.359352
+            power_unit: kW
+          - start_time: '2023-02-07T00:30:00Z'
+            power_value: 0.359352
+            power_unit: kW
+          - start_time: '2023-02-07T00:45:00Z'
+            power_value: 0.359352
+            power_unit: kW
+          - start_time: '2023-02-07T01:00:00Z'
+            power_value: 0.18216
+            power_unit: kW
+          - start_time: '2023-02-07T01:15:00Z'
+            power_value: 0.18216
+            power_unit: kW
+          - start_time: '2023-02-07T01:30:00Z'
+            power_value: 0.18216
+            power_unit: kW
+          - start_time: '2023-02-07T01:45:00Z'
+            power_value: 0.18216
+            power_unit: kW
+          - start_time: '2023-02-07T02:00:00Z'
+            power_value: 0.168912
+            power_unit: kW
+          - start_time: '2023-02-07T02:15:00Z'
+            power_value: 0.168912
+            power_unit: kW
+          - start_time: '2023-02-07T02:30:00Z'
+            power_value: 0.168912
+            power_unit: kW
+          - start_time: '2023-02-07T02:45:00Z'
+            power_value: 0.168912
+            power_unit: kW
+          - start_time: '2023-02-07T03:00:00Z'
+            power_value: 0.150696
+            power_unit: kW
+          - start_time: '2023-02-07T03:15:00Z'
+            power_value: 0.150696
+            power_unit: kW
+          - start_time: '2023-02-07T03:30:00Z'
+            power_value: 0.150696
+            power_unit: kW
+          - start_time: '2023-02-07T03:45:00Z'
+            power_value: 0.150696
+            power_unit: kW
+          - start_time: '2023-02-07T04:00:00Z'
+            power_value: 0.167256
+            power_unit: kW
+          - start_time: '2023-02-07T04:15:00Z'
+            power_value: 0.167256
+            power_unit: kW
+          - start_time: '2023-02-07T04:30:00Z'
+            power_value: 0.167256
+            power_unit: kW
+          - start_time: '2023-02-07T04:45:00Z'
+            power_value: 0.167256
+            power_unit: kW
+          - start_time: '2023-02-07T05:00:00Z'
+            power_value: 0.382536
+            power_unit: kW
+          - start_time: '2023-02-07T05:15:00Z'
+            power_value: 0.382536
+            power_unit: kW
+          - start_time: '2023-02-07T05:30:00Z'
+            power_value: 0.382536
+            power_unit: kW
+          - start_time: '2023-02-07T05:45:00Z'
+            power_value: 0.382536
+            power_unit: kW
+          - start_time: '2023-02-07T06:00:00Z'
+            power_value: 0.632592
+            power_unit: kW
+          - start_time: '2023-02-07T06:15:00Z'
+            power_value: 0.632592
+            power_unit: kW
+          - start_time: '2023-02-07T06:30:00Z'
+            power_value: 0.632592
+            power_unit: kW
+          - start_time: '2023-02-07T06:45:00Z'
+            power_value: 0.632592
+            power_unit: kW
+          - start_time: '2023-02-07T07:00:00Z'
+            power_value: 1.00188
+            power_unit: kW
+          - start_time: '2023-02-07T07:15:00Z'
+            power_value: 1.00188
+            power_unit: kW
+          - start_time: '2023-02-07T07:30:00Z'
+            power_value: 1.00188
+            power_unit: kW
+          - start_time: '2023-02-07T07:45:00Z'
+            power_value: 1.00188
+            power_unit: kW
+          - start_time: '2023-02-07T08:00:00Z'
+            power_value: 0.938952
+            power_unit: kW
+          - start_time: '2023-02-07T08:15:00Z'
+            power_value: 0.938952
+            power_unit: kW
+          - start_time: '2023-02-07T08:30:00Z'
+            power_value: 0.938952
+            power_unit: kW
+          - start_time: '2023-02-07T08:45:00Z'
+            power_value: 0.938952
+            power_unit: kW
+          - start_time: '2023-02-07T09:00:00Z'
+            power_value: 0.783288
+            power_unit: kW
+          - start_time: '2023-02-07T09:15:00Z'
+            power_value: 0.783288
+            power_unit: kW
+          - start_time: '2023-02-07T09:30:00Z'
+            power_value: 0.783288
+            power_unit: kW
+          - start_time: '2023-02-07T09:45:00Z'
+            power_value: 0.783288
+            power_unit: kW
+          - start_time: '2023-02-07T10:00:00Z'
+            power_value: 0.64584
+            power_unit: kW
+          - start_time: '2023-02-07T10:15:00Z'
+            power_value: 0.64584
+            power_unit: kW
+          - start_time: '2023-02-07T10:30:00Z'
+            power_value: 0.64584
+            power_unit: kW
+          - start_time: '2023-02-07T10:45:00Z'
+            power_value: 0.64584
+            power_unit: kW
+          - start_time: '2023-02-07T11:00:00Z'
+            power_value: 0.667368
+            power_unit: kW
+          - start_time: '2023-02-07T11:15:00Z'
+            power_value: 0.667368
+            power_unit: kW
+          - start_time: '2023-02-07T11:30:00Z'
+            power_value: 0.667368
+            power_unit: kW
+          - start_time: '2023-02-07T11:45:00Z'
+            power_value: 0.717368
+            power_unit: kW
+          - start_time: '2023-02-07T12:00:00Z'
+            power_value: 1.010104
+            power_unit: kW
+          - start_time: '2023-02-07T12:15:00Z'
+            power_value: 1.010104
+            power_unit: kW
+          - start_time: '2023-02-07T12:30:00Z'
+            power_value: 1.010104
+            power_unit: kW
+          - start_time: '2023-02-07T12:45:00Z'
+            power_value: 1.010104
+            power_unit: kW
+          - start_time: '2023-02-07T13:00:00Z'
+            power_value: 0.791728
+            power_unit: kW
+          - start_time: '2023-02-07T13:15:00Z'
+            power_value: 0.766728
+            power_unit: kW
+          - start_time: '2023-02-07T13:30:00Z'
+            power_value: 0.766728
+            power_unit: kW
+          - start_time: '2023-02-07T13:45:00Z'
+            power_value: 0.766728
+            power_unit: kW
+          - start_time: '2023-02-07T14:00:00Z'
+            power_value: 0.519984
+            power_unit: kW
+          - start_time: '2023-02-07T14:15:00Z'
+            power_value: 0.519984
+            power_unit: kW
+          - start_time: '2023-02-07T14:30:00Z'
+            power_value: 0.519984
+            power_unit: kW
+          - start_time: '2023-02-07T14:45:00Z'
+            power_value: 0.519984
+            power_unit: kW
+          - start_time: '2023-02-07T15:00:00Z'
+            power_value: 0.493488
+            power_unit: kW
+          - start_time: '2023-02-07T15:15:00Z'
+            power_value: 0.493488
+            power_unit: kW
+          - start_time: '2023-02-07T15:30:00Z'
+            power_value: 0.493488
+            power_unit: kW
+          - start_time: '2023-02-07T15:45:00Z'
+            power_value: 0.493488
+            power_unit: kW
+          - start_time: '2023-02-07T16:00:00Z'
+            power_value: 0.698694
+            power_unit: kW
+          - start_time: '2023-02-07T16:15:00Z'
+            power_value: 0.698694
+            power_unit: kW
+          - start_time: '2023-02-07T16:30:00Z'
+            power_value: 0.698694
+            power_unit: kW
+          - start_time: '2023-02-07T16:45:00Z'
+            power_value: 0.698694
+            power_unit: kW
+          - start_time: '2023-02-07T17:00:00Z'
+            power_value: 0.85284
+            power_unit: kW
+          - start_time: '2023-02-07T17:15:00Z'
+            power_value: 0.85284
+            power_unit: kW
+          - start_time: '2023-02-07T17:30:00Z'
+            power_value: 0.85284
+            power_unit: kW
+          - start_time: '2023-02-07T17:45:00Z'
+            power_value: 0.85284
+            power_unit: kW
+          - start_time: '2023-02-07T18:00:00Z'
+            power_value: 1.036656
+            power_unit: kW
+          - start_time: '2023-02-07T18:15:00Z'
+            power_value: 1.036656
+            power_unit: kW
+          - start_time: '2023-02-07T18:30:00Z'
+            power_value: 1.036656
+            power_unit: kW
+          - start_time: '2023-02-07T18:45:00Z'
+            power_value: 1.036656
+            power_unit: kW
+          - start_time: '2023-02-07T19:00:00Z'
+            power_value: 1.01016
+            power_unit: kW
+          - start_time: '2023-02-07T19:15:00Z'
+            power_value: 1.01016
+            power_unit: kW
+          - start_time: '2023-02-07T19:30:00Z'
+            power_value: 1.01016
+            power_unit: kW
+          - start_time: '2023-02-07T19:45:00Z'
+            power_value: 1.01016
+            power_unit: kW
+          - start_time: '2023-02-07T20:00:00Z'
+            power_value: 0.88596
+            power_unit: kW
+          - start_time: '2023-02-07T20:15:00Z'
+            power_value: 0.88596
+            power_unit: kW
+          - start_time: '2023-02-07T20:30:00Z'
+            power_value: 0.88596
+            power_unit: kW
+          - start_time: '2023-02-07T20:45:00Z'
+            power_value: 0.88596
+            power_unit: kW
+          - start_time: '2023-02-07T21:00:00Z'
+            power_value: 0.725328
+            power_unit: kW
+          - start_time: '2023-02-07T21:15:00Z'
+            power_value: 0.725328
+            power_unit: kW
+          - start_time: '2023-02-07T21:30:00Z'
+            power_value: 0.725328
+            power_unit: kW
+          - start_time: '2023-02-07T21:45:00Z'
+            power_value: 0.725328
+            power_unit: kW
+          - start_time: '2023-02-07T22:00:00Z'
+            power_value: 0.481896
+            power_unit: kW
+          - start_time: '2023-02-07T22:15:00Z'
+            power_value: 0.481896
+            power_unit: kW
+          - start_time: '2023-02-07T22:30:00Z'
+            power_value: 0.481896
+            power_unit: kW
+          - start_time: '2023-02-07T22:45:00Z'
+            power_value: 0.481896
+            power_unit: kW
+          - start_time: '2023-02-07T23:00:00Z'
+            power_value: 0.433872
+            power_unit: kW
+          - start_time: '2023-02-07T23:15:00Z'
+            power_value: 0.433872
+            power_unit: kW
+          - start_time: '2023-02-07T23:30:00Z'
+            power_value: 0.433872
+            power_unit: kW
+          - start_time: '2023-02-07T23:45:00Z'
+            power_value: 0.433872
+        upper_limit:
+          - start_time: '2023-02-07T14:00:00Z'
+            power_value: 0.15
+            power_unit: kW
+          - start_time: '2023-02-07T14:15:00Z'
+            power_value: 0.15
+            power_unit: kW
+          - start_time: '2023-02-07T14:30:00Z'
+            power_value: 0.1
+            power_unit: kW
+          - start_time: '2023-02-07T14:45:00Z'
+            power_value: 0.1
+            power_unit: kW
+          - start_time: '2023-02-07T15:00:00Z'
+            power_value: 0.08
+            power_unit: kW
+          - start_time: '2023-02-07T15:15:00Z'
+            power_value: 0.08
+            power_unit: kW
+          - start_time: '2023-02-07T15:30:00Z'
+            power_value: 0.08
+            power_unit: kW
+        lower_limit:
+          - start_time: '2023-02-07T09:00:00Z'
+            power_value: 0.15
+            power_unit: kW
+          - start_time: '2023-02-07T09:15:00Z'
+            power_value: 0.15
+            power_unit: kW
+          - start_time: '2023-02-07T09:30:00Z'
+            power_value: 0.1
+            power_unit: kW
+          - start_time: '2023-02-07T09:45:00Z'
+            power_value: 0.1
+            power_unit: kW
+          - start_time: '2023-02-07T10:00:00Z'
+            power_value: 0.08
+            power_unit: kW
+          - start_time: '2023-02-07T10:15:00Z'
+            power_value: 0.08
+            power_unit: kW
+          - start_time: '2023-02-07T10:30:00Z'
+            power_value: 0.08
+            power_unit: kW
+     
+  

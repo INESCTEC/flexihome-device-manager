@@ -1,1 +1,0 @@
-?event rdf:type ukb:AccessPolicyChangeEvent . ?event saref:hasTimestamp ?timestamp . ?event ukb:hasAccessStatus ?status . ?event ukb:hasAccessingKnowledgeBase ?kb . ?event ukb:hasPolicySubject ?device . ?device ukb:hasId ?deviceId .

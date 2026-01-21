@@ -1,1 +1,0 @@
-?delay <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://saref.etsi.org/saref4ener/PowerSequence> . ?delay <https://saref.etsi.org/saref4ener/deviceCode> ?deviceAddress . ?delay <https://saref.etsi.org/saref4ener/sequenceID> ?sequenceID . ?delay <https://saref.etsi.org/saref4ener/vendorCode> ?playerid . ?delay <https://saref.etsi.org/saref4ener/StartTime> ?startTime .

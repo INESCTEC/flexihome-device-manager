@@ -1,0 +1,34 @@
+title Flexibility inputs of valid user with scheduled cycles
+
+participant "Energy Manager" as em
+participant "Account Manager" as am
+participant "Energy Prices" as ep
+participant "Statistics Manager" as sm
+participant "Forecast Service" as fs
+participant "Device Manager" as dm
+
+
+em->am: Get user's profile info\ninput_call.get_user(user_id)\n**/api/account/user**
+activate am
+am-->em: user's profile (contracted power, tariff type, etc.)
+deactivate am
+
+em->ep: Get user's energy prices\n**/api/energy-prices/tariff-periods-erse?tariff_type=user.tariff_type**
+activate ep
+ep-->em: Energy Prices tariffs\n(based on contracted power)
+deactivate ep
+
+em->sm: Get CO2 intensity forecast\n**/api/statistics/ecosignal-forecast**
+activate sm
+sm-->em: CO2 forecast for next day
+deactivate sm
+
+em->fs: Get user household load consumption forecast\n**/api/forecast/get-forecast**
+activate fs
+fs-->em: User load consumption forecast
+deactivate fs
+
+em->dm: Get user's cycles schedule for next day\n**/api/device/schedule-cycle-by-user?user_id=user_id&start_timestamp=N&end_timestamp=N+1**
+activate dm
+dm-->em: list of user's cycles
+deactivate dm

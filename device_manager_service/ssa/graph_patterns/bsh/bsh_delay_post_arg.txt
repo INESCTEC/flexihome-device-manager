@@ -1,6 +1,0 @@
-?powerSequence <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://saref.etsi.org/saref4ener/PowerSequence> . 
-?powerSequence <http://ontology.tno.nl/interconnect/topology#hasTopologicalAssociation> ?associatedDevice . 
-?associatedDevice <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://ontology.tno.nl/interconnect/device#Device> . 
-?associatedDevice <http://ontology.tno.nl/interconnect/device#hasDeviceID> ?deviceId . 
-?powerSequence <https://saref.etsi.org/saref4ener/sequenceID> ?sequenceID . 
-?powerSequence <https://saref.etsi.org/saref4ener/StartTime> ?startTime .

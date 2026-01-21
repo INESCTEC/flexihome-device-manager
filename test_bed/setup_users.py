@@ -1,44 +1,21 @@
-import sys, uuid, json, requests
+import sys
 
 sys.path.append("..")
 
-# from device_manager_service import Config
-from device_manager_service.test.helper_functions import (
-    superuser_login,
-    mock_register,
-    clean_account
-)
+# from energy_manager_service import Config, generalLogger
+from energy_manager_service.test.setup_test_env import setup_test_env
 
 
-def mock_add_device(auth, serial_number, brand):
-    device = {"serial_number": serial_number}
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Correlation-ID": str(uuid.uuid4()),
-        "Authorization": auth,
-    }
-    params = {"brand": brand}
-
-    response = requests.post(
-        "http://localhost:8080/api/device/device", 
-        headers=headers, 
-        params=params, 
-        data=json.dumps(device)
+second_user = False
+for i in range(10):
+    i = str(i)
+    
+    user_id, auth_token, device_id, serial_number = setup_test_env(
+        email=f"v.c+{i}@gmail.com",
+        meter_id=f"meter{i}",
+        serial_number=f"serial_number{i}",
+        set_auto=False,
+        second_user=second_user
     )
-    print(response.status_code)
-    print(response.content)
-
-    return response
-
-
-clean_account()
-
-user_key, user_id, second_user_key, second_user_id = mock_register()
-
-authorization = superuser_login(id=user_key)
-
-print("addind device:")
-_ = mock_add_device(
-    authorization, serial_number="1113", brand="Whirlpool"
-)
+    
+    second_user = True

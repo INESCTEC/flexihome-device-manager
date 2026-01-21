@@ -1,0 +1,109 @@
+title Calculate User Flexibility Happy Flow
+
+participant "HEMS" as hems
+
+participant "Energy Manager\nController" as emc
+participant "Energy Manager\nScheduler" as ems
+participant "Energy Manager\nPipeline" as emp
+database "Energy Manager\nDatabase" as db
+participant "Account Manager" as am
+participant "Energy Manager\nSSA" as ssa
+participant "CyberNOC" as c
+
+
+hems -> am: Get all users\n**/api/account/user-list**
+activate am
+am -->hems: list of user IDs on the system
+deactivate am
+
+
+loop USER in user ids list
+hems ->emc: Calculate **USER** available flexibility\n**/api/energy_manager_service/flexibility/calculate** 
+activate emc
+
+emc->am: Verify user's OAuth token\nverify_basic_authorization(request.headers)
+activate am
+am-->emc: user_id
+deactivate am
+
+ref over emc: flexibility inputs of valid user with scheduled cycles\n(inputs_call())
+
+emc->ems: Calculate **baseline** optimized schedule\n(Solve optimization problem)
+activate ems
+alt Baseline optimization problem is solved
+ems-->emc: //outputs_opt_baseline// = Baseline weight array
+
+else Baseline optimization failed
+ems-->emc: None
+deactivate ems
+emc->emp: //outputs_with_zeros()//
+activate emp
+emp-->emc: //outputs_opt_baseline// = zeros weight array
+deactivate emp
+end
+
+
+emc->emp: Update schedule constraints\n//inputs_update(outputs_opt_baseline)//
+activate emp
+emp-->emc: Inputs with updated baseline constraints\n//inputs_opt_flexibility//
+deactivate emp
+
+emc->ems: Calculate **flexibility** optimized schedule\n(Solve optimization problem)
+activate ems
+alt Flexibility optimization problem is solved
+ems-->emc: //outputs_opt_flexibility// = Flexibility weight array
+
+else Flexibility optimization failed
+ems-->emc: None
+deactivate ems
+emc->emp: //outputs_with_zeros()//
+activate emp
+emp-->emc: //outputs_opt_flexibility// = zeros weight array
+deactivate emp
+end
+
+emc->emp: Build flexibility output object\n//outputs_flexibility(outputs_opt_baseline, outputs_opt_flexibility)//
+activate emp
+emp->db: Save asset's available flexibility\n//Insert Flexibility Vectors and Available Flexbility//
+activate db
+db-->emp: No error
+deactivate db
+emp-->emc: Flex output object\n//output_flexibility_response// <Asset ID, baseline, flex up, flex down>
+deactivate emp
+
+emc->ssa: send **baseline** to aggregator
+activate ssa
+ssa->c: SIF: POST
+c-->ssa: SIF: REACT
+ssa-->emc: True
+deactivate ssa
+
+emc->ssa: send **upwards flexibility** to aggregator
+activate ssa
+ssa->c: SIF: POST
+c-->ssa: SIF: REACT
+ssa-->emc: True
+deactivate ssa
+
+emc->emp: Save **baseline** optimized cycles metadata\n//outputs_cycles(outputs_opt_baseline)//
+activate emp
+emp->db: Insert optimized cycles
+activate db
+db-->emp: No error
+deactivate db
+emp-->emc: No action
+deactivate emp
+
+emc->emp: Save **flexibility** optimized cycles metadata\n//outputs_cycles(outputs_opt_flexibility)//
+activate emp
+emp->db: Insert optimized cycles
+activate db
+db-->emp: No error
+deactivate db
+emp-->emc: No action
+deactivate emp
+
+emc-->hems: Flex output object\n//output_flexibility_response//
+deactivate emc
+
+end
